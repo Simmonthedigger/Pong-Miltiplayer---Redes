@@ -181,3 +181,21 @@ public class UdpPongServer : MonoBehaviour
         if (server != null) server.Close();
     }
 }
+
+public class PersistentObject1 : MonoBehaviour
+{
+    private static PersistentObject1 instance;
+
+    void Awake()
+    {
+        // Se já existir uma instância deste objeto, destrói a nova duplicata
+        if (instance != null && instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
+
+        instance = this;
+        DontDestroyOnLoad(gameObject);
+    }
+}

@@ -102,9 +102,30 @@ public class UdpPongClient : MonoBehaviour
         }
     }
 
+
+
     private void OnApplicationQuit()
     {
         if (receiveThread != null) receiveThread.Abort();
         if (client != null) client.Close();
+    }
+}
+
+
+public class PersistentObject : MonoBehaviour
+{
+    private static PersistentObject instance;
+
+    void Awake()
+    {
+        // Se já existir uma instância deste objeto, destrói a nova duplicata
+        if (instance != null && instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
+
+        instance = this;
+        DontDestroyOnLoad(gameObject);
     }
 }

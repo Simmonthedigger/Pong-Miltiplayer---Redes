@@ -1,12 +1,15 @@
 using UnityEngine;
-using UnityEngine.UI;
+using TMPro; // Biblioteca necessária para TextMeshPro
 
 public class UIManager : MonoBehaviour
 {
-    public Text scoreTextP1;
-    public Text scoreTextP2;
+    [Header("UI Placar")]
+    public TextMeshProUGUI scoreTextP1;
+    public TextMeshProUGUI scoreTextP2;
+
+    [Header("Painel de Vitória")]
     public GameObject restartPanel;
-    public Text winText;
+    public TextMeshProUGUI winText;
 
     void Start()
     {
@@ -18,28 +21,46 @@ public class UIManager : MonoBehaviour
 
     void Update()
     {
-        if (!UdpPongClient.Instance.isConnected) return;
+        // Garante que a instância do cliente existe e está conectada
+        if (UdpPongClient.Instance == null || !UdpPongClient.Instance.isConnected) return;
 
         // Atualiza o Placar
-        scoreTextP1.text = UdpPongClient.Instance.scoreP1.ToString();
-        scoreTextP2.text = UdpPongClient.Instance.scoreP2.ToString();
+        if (scoreTextP1 != null) scoreTextP1.text = UdpPongClient.Instance.scoreP1.ToString();
+        if (scoreTextP2 != null) scoreTextP2.text = UdpPongClient.Instance.scoreP2.ToString();
 
         // Checa Condição de Vitória
         if (UdpPongClient.Instance.winnerId != -1)
         {
-            restartPanel.SetActive(true);
-            winText.text = "PLAYER " + UdpPongClient.Instance.winnerId + " VENCEU!";
+            if (restartPanel != null && !restartPanel.activeSelf)
+            {
+                restartPanel.SetActive(true);
+            }
+
+            if (winText != null)
+            {
+                winText.text = "PLAYER " + UdpPongClient.Instance.winnerId + " VENCEU!";
+            }
         }
         else
         {
-            restartPanel.SetActive(false);
+            if (restartPanel != null && restartPanel.activeSelf)
+            {
+                restartPanel.SetActive(false);
+            }
         }
     }
 
     public void OnRestartButtonClicked()
     {
-        UdpPongClient.Instance.winnerId = -1;
-        UdpPongClient.Instance.SendRestart();
-        restartPanel.SetActive(false);
+        if (UdpPongClient.Instance != null)
+        {
+            UdpPongClient.Instance.winnerId = -1;
+            UdpPongClient.Instance.SendRestart();
+        }
+
+        if (restartPanel != null)
+        {
+            restartPanel.SetActive(false);
+        }
     }
 }
