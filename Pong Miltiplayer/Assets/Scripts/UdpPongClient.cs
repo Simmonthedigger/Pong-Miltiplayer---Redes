@@ -11,7 +11,7 @@ public class UdpPongClient : MonoBehaviour
 
     private UdpClient client;
     private Thread receiveThread;
-    private IPEndPoint serverEP;
+    private readonly object lockObject = new object();
 
     public int myId = -1;
     public bool isConnected = false;
@@ -40,11 +40,10 @@ public class UdpPongClient : MonoBehaviour
         if (isConnected) return;
 
         client = new UdpClient();
-        serverEP = new IPEndPoint(IPAddress.Parse(ip), 5001);
+        IPEndPoint serverEP = new IPEndPoint(IPAddress.Parse(ip), 5001);
         client.Connect(serverEP);
 
-        receiveThread = new Thread(ReceiveData);
-        receiveThread.IsBackground = true;
+        receiveThread = new Thread(ReceiveData) { IsBackground = true };
         receiveThread.Start();
 
         byte[] hello = Encoding.UTF8.GetBytes("HELLO");
@@ -53,7 +52,7 @@ public class UdpPongClient : MonoBehaviour
 
     public void SendInput(float yPosition)
     {
-        if (!isConnected) return;
+        if (!isConnected || client == null) return;
         string msg = "POS:" + yPosition.ToString("F2", CultureInfo.InvariantCulture);
         byte[] data = Encoding.UTF8.GetBytes(msg);
         client.Send(data, data.Length);
@@ -61,7 +60,7 @@ public class UdpPongClient : MonoBehaviour
 
     public void SendRestart()
     {
-        if (!isConnected) return;
+        if (!isConnected || client == null) return;
         byte[] data = Encoding.UTF8.GetBytes("RESTART");
         client.Send(data, data.Length);
     }
@@ -76,56 +75,52 @@ public class UdpPongClient : MonoBehaviour
                 byte[] data = client.Receive(ref remoteEP);
                 string msg = Encoding.UTF8.GetString(data);
 
-                if (msg.StartsWith("ASSIGN:"))
+                lock (lockObject)
                 {
-                    myId = int.Parse(msg.Substring(7));
-                    isConnected = true;
-                }
-                else if (msg.StartsWith("STATE:"))
-                {
-                    string[] p = msg.Substring(6).Split(';');
-                    if (p.Length == 6)
+                    if (msg.StartsWith("ASSIGN:"))
                     {
-                        ballPos = new Vector3(float.Parse(p[0], CultureInfo.InvariantCulture), float.Parse(p[1], CultureInfo.InvariantCulture), 0);
-                        p1Y = float.Parse(p[2], CultureInfo.InvariantCulture);
-                        p2Y = float.Parse(p[3], CultureInfo.InvariantCulture);
-                        scoreP1 = int.Parse(p[4]);
-                        scoreP2 = int.Parse(p[5]);
+                        myId = int.Parse(msg.Substring(7));
+                        isConnected = true;
+                    }
+                    else if (msg.StartsWith("STATE:"))
+                    {
+                        string[] p = msg.Substring(6).Split(';');
+                        if (p.Length == 6)
+                        {
+                            ballPos = new Vector3(float.Parse(p[0], CultureInfo.InvariantCulture), float.Parse(p[1], CultureInfo.InvariantCulture), 0);
+                            p1Y = float.Parse(p[2], CultureInfo.InvariantCulture);
+                            p2Y = float.Parse(p[3], CultureInfo.InvariantCulture);
+                            scoreP1 = int.Parse(p[4]);
+                            scoreP2 = int.Parse(p[5]);
+                        }
+                    }
+                    else if (msg.StartsWith("WIN:"))
+                    {
+                        winnerId = int.Parse(msg.Substring(4));
                     }
                 }
-                else if (msg.StartsWith("WIN:"))
-                {
-                    winnerId = int.Parse(msg.Substring(4));
-                }
             }
-            catch (System.Exception) { break; }
+            catch (SocketException) { break; }
+            catch (System.Exception) { /* Ignora pacotes malformados */ }
         }
     }
 
-
+    private void OnDestroy()
+    {
+        CloseSocket();
+    }
 
     private void OnApplicationQuit()
     {
-        if (receiveThread != null) receiveThread.Abort();
-        if (client != null) client.Close();
+        CloseSocket();
     }
-}
 
-
-public class PersistentObject : MonoBehaviour
-{
-    private static PersistentObject instance;
-
-    void Awake()
+    private void CloseSocket()
     {
-        // Se já existir uma instância deste objeto, destrói a nova duplicata
-        if (instance != null && instance != this)
+        if (client != null)
         {
-            Destroy(gameObject);
-            return;
+            client.Close();
+            client = null;
         }
-
-        instance = this;
-        DontDestroyOnLoad(gameObject);
     }
 }
