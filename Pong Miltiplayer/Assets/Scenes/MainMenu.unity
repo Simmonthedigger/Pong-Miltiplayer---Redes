@@ -1628,14 +1628,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 61032589ceea7dd47bafd355db52f7d3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::UdpPongClient
-  myId: -1
-  isConnected: 0
-  ballPos: {x: 0, y: 0, z: 0}
-  p1Y: 0
-  p2Y: 0
-  scoreP1: 0
-  scoreP2: 0
-  winnerId: -1
 --- !u!4 &1606596612
 Transform:
   m_ObjectHideFlags: 0
@@ -1937,7 +1929,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1798296911
 MonoBehaviour:
   m_ObjectHideFlags: 0

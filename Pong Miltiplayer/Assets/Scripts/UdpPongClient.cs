@@ -5,42 +5,32 @@ using System.Text;
 using System.Threading;
 using System.Globalization;
 
-public class UdpPongClient : MonoBehaviour
-{
-    public static UdpPongClient Instance;
 
+public class UdpClientTwoClients : MonoBehaviour
+{
     private UdpClient client;
     private Thread receiveThread;
-    private readonly object lockObject = new object();
+    private IPEndPoint serverEP;
+    private readonly object lockObj = new object();
 
+    public PongBallPhysics pongBall;
     public int myId = -1;
-    public bool isConnected = false;
+    private Vector3 remotePos = Vector3.zero;
 
-    // Dados Sincronizados
-    public Vector3 ballPos;
-    public float p1Y, p2Y;
-    public int scoreP1, scoreP2;
-    public int winnerId = -1;
+    [Header("Configurações do Jogador")]
+    public GameObject localCube;
+    public GameObject remoteCube;
+    public float speed = 10f;
+    public float minY = -3.8f;
+    public float maxY = 3.8f;
 
-    void Awake()
+    [Header("Configuração de Rede")]
+    public string serverIP = "127.0.0.1";
+
+    void Start()
     {
-        if (Instance == null)
-        {
-            Instance = this;
-            DontDestroyOnLoad(gameObject);
-        }
-        else
-        {
-            Destroy(gameObject);
-        }
-    }
-
-    public void ConnectToServer(string ip)
-    {
-        if (isConnected) return;
-
         client = new UdpClient();
-        IPEndPoint serverEP = new IPEndPoint(IPAddress.Parse(ip), 5001);
+        serverEP = new IPEndPoint(IPAddress.Parse(serverIP), 5001);
         client.Connect(serverEP);
 
         receiveThread = new Thread(ReceiveData) { IsBackground = true };
@@ -50,22 +40,43 @@ public class UdpPongClient : MonoBehaviour
         client.Send(hello, hello.Length);
     }
 
-    public void SendInput(float yPosition)
+    void Update()
     {
-        if (!isConnected || client == null) return;
-        string msg = "POS:" + yPosition.ToString("F2", CultureInfo.InvariantCulture);
-        byte[] data = Encoding.UTF8.GetBytes(msg);
-        client.Send(data, data.Length);
+        // 1. Movimento Local Apenas Vertical
+        float v = Input.GetAxisRaw("Vertical");
+        if (v != 0 && localCube != null)
+        {
+            Vector3 pos = localCube.transform.position;
+            pos.y += v * speed * Time.deltaTime;
+            pos.y = Mathf.Clamp(pos.y, minY, maxY); // Limite de altura
+            localCube.transform.position = pos;
+        }
+
+        // 2. Envia posição atualizada para o servidor
+        if (localCube != null)
+        {
+            string msg = "POS:" +
+                localCube.transform.position.x.ToString("F2", CultureInfo.InvariantCulture) + ";" +
+                localCube.transform.position.y.ToString("F2", CultureInfo.InvariantCulture);
+            byte[] data = Encoding.UTF8.GetBytes(msg);
+            client.Send(data, data.Length);
+        }
+
+        // 3. Atualiza posição do jogador remoto suavemente
+        lock (lockObj)
+        {
+            if (remoteCube != null)
+            {
+                remoteCube.transform.position = Vector3.Lerp(
+                    remoteCube.transform.position,
+                    remotePos,
+                    Time.deltaTime * 15f
+                );
+            }
+        }
     }
 
-    public void SendRestart()
-    {
-        if (!isConnected || client == null) return;
-        byte[] data = Encoding.UTF8.GetBytes("RESTART");
-        client.Send(data, data.Length);
-    }
-
-    private void ReceiveData()
+    void ReceiveData()
     {
         IPEndPoint remoteEP = new IPEndPoint(IPAddress.Any, 0);
         while (true)
@@ -75,33 +86,56 @@ public class UdpPongClient : MonoBehaviour
                 byte[] data = client.Receive(ref remoteEP);
                 string msg = Encoding.UTF8.GetString(data);
 
-                lock (lockObject)
+                lock (lockObj)
                 {
                     if (msg.StartsWith("ASSIGN:"))
                     {
                         myId = int.Parse(msg.Substring(7));
-                        isConnected = true;
+                        Debug.Log("[Cliente] Meu ID = " + myId);
                     }
-                    else if (msg.StartsWith("STATE:"))
+                    else if (msg.StartsWith("POS:"))
                     {
-                        string[] p = msg.Substring(6).Split(';');
-                        if (p.Length == 6)
+                        string[] parts = msg.Substring(4).Split(';');
+                        if (parts.Length == 3)
                         {
-                            ballPos = new Vector3(float.Parse(p[0], CultureInfo.InvariantCulture), float.Parse(p[1], CultureInfo.InvariantCulture), 0);
-                            p1Y = float.Parse(p[2], CultureInfo.InvariantCulture);
-                            p2Y = float.Parse(p[3], CultureInfo.InvariantCulture);
-                            scoreP1 = int.Parse(p[4]);
-                            scoreP2 = int.Parse(p[5]);
+                            int id = int.Parse(parts[0]);
+                            if (id != myId)
+                            {
+                                float x = float.Parse(parts[1], CultureInfo.InvariantCulture);
+                                float y = float.Parse(parts[2], CultureInfo.InvariantCulture);
+                                remotePos = new Vector3(x, y, 0);
+                            }
                         }
                     }
-                    else if (msg.StartsWith("WIN:"))
+
+                    else if (msg.StartsWith("BALL:"))
                     {
-                        winnerId = int.Parse(msg.Substring(4));
+                        string[] parts = msg.Substring(5).Split(';');
+                        if (parts.Length == 3)
+                        {
+                            int id = int.Parse(parts[0]);
+                            // Se for o Player 2 recebendo a posição enviada pelo Player 1
+                            if (id != myId && pongBall != null)
+                            {
+                                float x = float.Parse(parts[1], CultureInfo.InvariantCulture);
+                                float y = float.Parse(parts[2], CultureInfo.InvariantCulture);
+                                pongBall.UpdateRemotePosition(x, y);
+                            }
+                        }
                     }
                 }
             }
             catch (SocketException) { break; }
-            catch (System.Exception) { /* Ignora pacotes malformados */ }
+            catch (System.Exception) { }
+        }
+    }
+
+    public void SendNetworkMessage(string msg)
+    {
+        if (client != null)
+        {
+            byte[] data = Encoding.UTF8.GetBytes(msg);
+            client.Send(data, data.Length);
         }
     }
 
