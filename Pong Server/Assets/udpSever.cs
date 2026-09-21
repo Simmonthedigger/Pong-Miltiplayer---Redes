@@ -8,9 +8,9 @@ using System.Collections.Generic;
 public class UdpServerTwoClients : MonoBehaviour
 {
     private UdpClient server;
-    private IPEndPoint anyEP;
     private Thread receiveThread;
     private Dictionary<string, int> clientIds = new Dictionary<string, int>();
+    private Dictionary<int, IPEndPoint> clientEndpoints = new Dictionary<int, IPEndPoint>();
     private int nextId = 1;
     private readonly object lockObj = new object();
 
@@ -18,45 +18,73 @@ public class UdpServerTwoClients : MonoBehaviour
     {
         Application.targetFrameRate = 60;
         server = new UdpClient(5001);
-        anyEP = new IPEndPoint(IPAddress.Any, 0);
         receiveThread = new Thread(ReceiveData) { IsBackground = true };
         receiveThread.Start();
-        Debug.Log("Servidor iniciado na porta 5001");
+        Debug.Log("[Servidor] Iniciado na porta 5001");
     }
 
     void ReceiveData()
     {
+        IPEndPoint remoteEP = new IPEndPoint(IPAddress.Any, 0);
+
         while (true)
         {
             try
             {
-                byte[] data = server.Receive(ref anyEP);
+                byte[] data = server.Receive(ref remoteEP);
                 string msg = Encoding.UTF8.GetString(data);
-                string key = anyEP.Address + ":" + anyEP.Port;
+                string clientKey = remoteEP.Address.ToString() + ":" + remoteEP.Port;
 
                 lock (lockObj)
                 {
-                    if (!clientIds.ContainsKey(key) && clientIds.Count < 2)
+                    // Registra o cliente usando IP e PORTA
+                    if (!clientIds.ContainsKey(clientKey) && clientIds.Count < 2)
                     {
-                        clientIds[key] = nextId++;
-                        string assignMsg = "ASSIGN:" + clientIds[key];
-                        server.Send(Encoding.UTF8.GetBytes(assignMsg), assignMsg.Length, anyEP);
+                        int assignedId = nextId++;
+                        clientIds[clientKey] = assignedId;
+                        clientEndpoints[assignedId] = new IPEndPoint(remoteEP.Address, remoteEP.Port);
+
+                        string assignMsg = "ASSIGN:" + assignedId;
+                        byte[] assignBytes = Encoding.UTF8.GetBytes(assignMsg);
+                        server.Send(assignBytes, assignBytes.Length, remoteEP);
+
+                        Debug.Log($"[Servidor] Novo Cliente registrado: {clientKey} -> ID {assignedId}");
                     }
 
-                    if (clientIds.TryGetValue(key, out int id))
+                    if (clientIds.TryGetValue(clientKey, out int senderId))
                     {
-                        // Retransmite mensagens de Posição (POS:) e Bola (BALL:) para todos os clientes
-                        if (msg.StartsWith("POS:") || msg.StartsWith("BALL:"))
+                        // Se o cliente enviar HELLO novamente, re-confirma o ID
+                        if (msg == "HELLO")
                         {
-                            string prefix = msg.StartsWith("POS:") ? "POS:" : "BALL:";
-                            string coords = msg.Substring(5);
-                            string broadcast = $"{prefix}{id};{coords}";
-                            byte[] bdata = Encoding.UTF8.GetBytes(broadcast);
+                            string assignMsg = "ASSIGN:" + senderId;
+                            byte[] assignBytes = Encoding.UTF8.GetBytes(assignMsg);
+                            server.Send(assignBytes, assignBytes.Length, remoteEP);
+                            continue;
+                        }
 
-                            foreach (var kvp in clientIds)
+                        // Retransmite mensagens de Posição, Bola, Placar e Saque
+                        if (msg.StartsWith("POS:") || msg.StartsWith("BALL:") || msg.StartsWith("SCORE:") || msg.StartsWith("REQUEST_LAUNCH"))
+                        {
+                            byte[] bdata;
+
+                            // Se for posição ou bola, anexa o ID de quem enviou (ex: POS:1;X;Y)
+                            if (msg.StartsWith("POS:") || msg.StartsWith("BALL:"))
                             {
-                                var parts = kvp.Key.Split(':');
-                                IPEndPoint ep = new IPEndPoint(IPAddress.Parse(parts[0]), int.Parse(parts[1]));
+                                int colonIndex = msg.IndexOf(':');
+                                string prefix = msg.Substring(0, colonIndex + 1);
+                                string payload = msg.Substring(colonIndex + 1);
+                                string broadcastMsg = $"{prefix}{senderId};{payload}";
+                                bdata = Encoding.UTF8.GetBytes(broadcastMsg);
+                            }
+                            else
+                            {
+                                // SCORE: e REQUEST_LAUNCH são retransmitidas exatamente como recebidas
+                                bdata = Encoding.UTF8.GetBytes(msg);
+                            }
+
+                            // Transmite para TODOS os clientes conectados
+                            foreach (var ep in clientEndpoints.Values)
+                            {
                                 server.Send(bdata, bdata.Length, ep);
                             }
                         }
@@ -64,7 +92,10 @@ public class UdpServerTwoClients : MonoBehaviour
                 }
             }
             catch (SocketException) { break; }
-            catch (System.Exception) { }
+            catch (System.Exception ex)
+            {
+                Debug.LogError("[Servidor Erro]: " + ex.Message);
+            }
         }
     }
 
