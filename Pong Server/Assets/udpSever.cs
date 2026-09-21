@@ -17,10 +17,19 @@ public class UdpServerTwoClients : MonoBehaviour
     void Start()
     {
         Application.targetFrameRate = 60;
-        server = new UdpClient(5001);
-        receiveThread = new Thread(ReceiveData) { IsBackground = true };
-        receiveThread.Start();
-        Debug.Log("[Servidor] Iniciado na porta 5001");
+        try
+        {
+            server = new UdpClient(5001);
+            receiveThread = new Thread(ReceiveData) { IsBackground = true };
+            receiveThread.Start();
+
+            // Log de servidor iniciado formatado em verde e negrito
+            Debug.Log("<color=green><b>[SERVIDOR INICIADO]</b> Rodando com sucesso na porta UDP 5001!</color>");
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError("<color=red>[SERVIDOR ERRO] Falha ao iniciar na porta 5001:</color> " + ex.Message);
+        }
     }
 
     void ReceiveData()
@@ -48,7 +57,7 @@ public class UdpServerTwoClients : MonoBehaviour
                         byte[] assignBytes = Encoding.UTF8.GetBytes(assignMsg);
                         server.Send(assignBytes, assignBytes.Length, remoteEP);
 
-                        Debug.Log($"[Servidor] Novo Cliente registrado: {clientKey} -> ID {assignedId}");
+                        Debug.Log($"<color=cyan><b>[SERVIDOR]</b> Novo Cliente Registrado: {clientKey} -> ID {assignedId}</color>");
                     }
 
                     if (clientIds.TryGetValue(clientKey, out int senderId))
@@ -59,6 +68,7 @@ public class UdpServerTwoClients : MonoBehaviour
                             string assignMsg = "ASSIGN:" + senderId;
                             byte[] assignBytes = Encoding.UTF8.GetBytes(assignMsg);
                             server.Send(assignBytes, assignBytes.Length, remoteEP);
+                            Debug.Log($"<color=yellow>[SERVIDOR] Reenviado ASSIGN:{senderId} para {clientKey}</color>");
                             continue;
                         }
 

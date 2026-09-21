@@ -2238,8 +2238,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::UdpServerTwoClients
   pongBall: {fileID: 148335977}
   myId: -1
-  localCube: {fileID: 717544120}
-  remoteCube: {fileID: 1797223118}
+  localCube: {fileID: 1797223118}
+  remoteCube: {fileID: 717544120}
   speed: 10
   minY: -3.8
   maxY: 3.8

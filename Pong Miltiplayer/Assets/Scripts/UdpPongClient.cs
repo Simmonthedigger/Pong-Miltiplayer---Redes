@@ -16,7 +16,7 @@ public class UdpClientTwoClients : MonoBehaviour
     public int myId = -1;
 
     private Vector3 remotePos;
-    private float remoteInitialX; // Mantém a coluna X fixa do cliente local
+    private float remoteInitialX;
 
     [Header("Configurações do Jogador")]
     public GameObject localCube;
@@ -31,7 +31,6 @@ public class UdpClientTwoClients : MonoBehaviour
 
     void Start()
     {
-        // 1. Grava a posição X inicial para o cubo remoto não ir para o centro (0,0,0)
         if (remoteCube != null)
         {
             remotePos = remoteCube.transform.position;
@@ -40,28 +39,27 @@ public class UdpClientTwoClients : MonoBehaviour
 
         try
         {
-            // Cria o socket em uma porta dinamicamente atribuída pelo sistema (porta 0)
             client = new UdpClient(0);
             serverEP = new IPEndPoint(IPAddress.Parse(serverIP), serverPort);
 
-            // Inicia thread de recepção de dados
+            // Log informando a tentativa de conexão
+            Debug.Log($"<color=yellow>[Cliente] Tentando conectar ao servidor em {serverIP}:{serverPort}...</color>");
+
             receiveThread = new Thread(ReceiveData) { IsBackground = true };
             receiveThread.Start();
 
-            // Envia mensagem HELLO para registrar no servidor
-            byte[] hello = Encoding.UTF8.GetBytes("HELLO");
-            client.Send(hello, hello.Length, serverEP);
-            Debug.Log("[Cliente] Enviou HELLO para o servidor.");
+            // Envia mensagem HELLO
+            SendNetworkMessage("HELLO");
+            Debug.Log($"<color=cyan>[Cliente] Pacote HELLO enviado para {serverIP}:{serverPort}</color>");
         }
         catch (System.Exception ex)
         {
-            Debug.LogError("[Cliente Error]: " + ex.Message);
+            Debug.LogError("[Cliente Erro ao Iniciar]: " + ex.Message);
         }
     }
 
     void Update()
     {
-        // 1. Movimento do Cubo Local
         float v = Input.GetAxisRaw("Vertical");
         if (v != 0 && localCube != null)
         {
@@ -71,7 +69,6 @@ public class UdpClientTwoClients : MonoBehaviour
             localCube.transform.position = pos;
         }
 
-        // 2. Envia posição atualizada para o servidor
         if (localCube != null && myId != -1)
         {
             string msg = "POS:" +
@@ -81,7 +78,6 @@ public class UdpClientTwoClients : MonoBehaviour
             SendNetworkMessage(msg);
         }
 
-        // 3. Atualiza a posição do cubo remoto
         lock (lockObj)
         {
             if (remoteCube != null)
@@ -110,7 +106,8 @@ public class UdpClientTwoClients : MonoBehaviour
                     if (msg.StartsWith("ASSIGN:"))
                     {
                         myId = int.Parse(msg.Substring(7));
-                        Debug.Log("[Cliente] Atribuído ID = " + myId);
+                        // Mensagem clara informando que a conexão foi estabelecida e registrada com sucesso!
+                        Debug.Log($"<color=green><b>[Cliente CONECTADO!]</b> Registrado no Servidor ({remoteEP.Address}). ID Atribuído = {myId}</color>");
                     }
                     else if (msg.StartsWith("POS:"))
                     {
@@ -120,7 +117,6 @@ public class UdpClientTwoClients : MonoBehaviour
                             int id = int.Parse(parts[0]);
                             if (id != myId)
                             {
-                                // Se recebemos a posição de outro jogador, confirma que o Player 2 está no jogo!
                                 if (pongBall != null)
                                 {
                                     pongBall.SetPlayer2Connected();
@@ -145,9 +141,6 @@ public class UdpClientTwoClients : MonoBehaviour
                             }
                         }
                     }
-
-                    // Adicione dentro de ReceiveData() no lock(lockObj):
-
                     else if (msg.StartsWith("REQUEST_LAUNCH"))
                     {
                         if (myId == 1 && pongBall != null)
@@ -174,7 +167,6 @@ public class UdpClientTwoClients : MonoBehaviour
                             pongBall.RestartGame();
                         }
                     }
-
                 }
             }
             catch (SocketException) { break; }
