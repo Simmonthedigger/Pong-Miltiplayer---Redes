@@ -26,7 +26,7 @@ public class UdpClientTwoClients : MonoBehaviour
     public float maxY = 3.8f;
 
     [Header("Configuração de Rede")]
-    public string serverIP = "10.57.1.70";
+    public string serverIP = "127.0.0.1";
     public int serverPort = 5001;
 
     void Start()
