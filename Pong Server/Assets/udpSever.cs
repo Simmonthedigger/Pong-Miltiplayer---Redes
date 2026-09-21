@@ -37,8 +37,9 @@ public class UdpServerTwoClients : MonoBehaviour
 
                 lock (lockObj)
                 {
-                    // Registra o cliente usando IP e PORTA
-                    if (!clientIds.ContainsKey(clientKey) && clientIds.Count < 2)
+                    if (msg.StartsWith("POS:") || msg.StartsWith("BALL:") || msg.StartsWith("SCORE:") || msg.StartsWith("REQUEST_LAUNCH") || msg.StartsWith("REQUEST_RESTART"))
+                        // Registra o cliente usando IP e PORTA
+                        if (!clientIds.ContainsKey(clientKey) && clientIds.Count < 2)
                     {
                         int assignedId = nextId++;
                         clientIds[clientKey] = assignedId;
@@ -117,4 +118,4 @@ public class UdpServerTwoClients : MonoBehaviour
             server = null;
         }
     }
-}
+}   

@@ -157,7 +157,6 @@ public class UdpClientTwoClients : MonoBehaviour
                     }
                     else if (msg.StartsWith("SCORE:"))
                     {
-                        // Formato SCORE:p1;p2;servingPlayerId
                         string[] parts = msg.Substring(6).Split(';');
                         if (parts.Length == 3 && pongBall != null)
                         {
@@ -166,6 +165,13 @@ public class UdpClientTwoClients : MonoBehaviour
                             int nextServer = int.Parse(parts[2]);
 
                             pongBall.UpdateScore(p1, p2, nextServer);
+                        }
+                    }
+                    else if (msg.StartsWith("REQUEST_RESTART"))
+                    {
+                        if (pongBall != null)
+                        {
+                            pongBall.RestartGame();
                         }
                     }
 
