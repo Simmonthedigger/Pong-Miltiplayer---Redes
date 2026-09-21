@@ -37,9 +37,8 @@ public class UdpServerTwoClients : MonoBehaviour
 
                 lock (lockObj)
                 {
-                    if (msg.StartsWith("POS:") || msg.StartsWith("BALL:") || msg.StartsWith("SCORE:") || msg.StartsWith("REQUEST_LAUNCH") || msg.StartsWith("REQUEST_RESTART"))
-                        // Registra o cliente usando IP e PORTA
-                        if (!clientIds.ContainsKey(clientKey) && clientIds.Count < 2)
+                    // 1. Registra o cliente usando IP e PORTA (Qualquer mensagem inicial registra)
+                    if (!clientIds.ContainsKey(clientKey) && clientIds.Count < 2)
                     {
                         int assignedId = nextId++;
                         clientIds[clientKey] = assignedId;
@@ -54,7 +53,7 @@ public class UdpServerTwoClients : MonoBehaviour
 
                     if (clientIds.TryGetValue(clientKey, out int senderId))
                     {
-                        // Se o cliente enviar HELLO novamente, re-confirma o ID
+                        // 2. Se o cliente enviar HELLO novamente, apenas re-confirma o ID
                         if (msg == "HELLO")
                         {
                             string assignMsg = "ASSIGN:" + senderId;
@@ -63,8 +62,8 @@ public class UdpServerTwoClients : MonoBehaviour
                             continue;
                         }
 
-                        // Retransmite mensagens de Posição, Bola, Placar e Saque
-                        if (msg.StartsWith("POS:") || msg.StartsWith("BALL:") || msg.StartsWith("SCORE:") || msg.StartsWith("REQUEST_LAUNCH"))
+                        // 3. Retransmite mensagens de Posição, Bola, Placar, Saque e Reinício
+                        if (msg.StartsWith("POS:") || msg.StartsWith("BALL:") || msg.StartsWith("SCORE:") || msg.StartsWith("REQUEST_LAUNCH") || msg.StartsWith("REQUEST_RESTART"))
                         {
                             byte[] bdata;
 
@@ -79,7 +78,7 @@ public class UdpServerTwoClients : MonoBehaviour
                             }
                             else
                             {
-                                // SCORE: e REQUEST_LAUNCH são retransmitidas exatamente como recebidas
+                                // SCORE:, REQUEST_LAUNCH e REQUEST_RESTART são retransmitidas exatamente como recebidas
                                 bdata = Encoding.UTF8.GetBytes(msg);
                             }
 
@@ -118,4 +117,4 @@ public class UdpServerTwoClients : MonoBehaviour
             server = null;
         }
     }
-}   
+}
