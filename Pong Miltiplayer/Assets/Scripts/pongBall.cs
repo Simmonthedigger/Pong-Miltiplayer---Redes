@@ -1,6 +1,7 @@
 using UnityEngine;
 using TMPro;
 using System.Globalization;
+using System.Collections;
 
 public class PongBallPhysics : MonoBehaviour
 {
@@ -10,22 +11,25 @@ public class PongBallPhysics : MonoBehaviour
     [Header("Interface do Placar")]
     public TextMeshProUGUI scoreTextP1;
     public TextMeshProUGUI scoreTextP2;
-    public TextMeshProUGUI winText; // Novo texto para exibir a mensagem de vitória
+    public TextMeshProUGUI winText;
 
     [Header("Placar Interno")]
     public int scorePlayer1 = 0;
     public int scorePlayer2 = 0;
-    public int maxScore = 10; // Condição de vitória
+    public int maxScore = 10;
 
     private Rigidbody2D rb;
     private Vector3 remoteBallPos = Vector3.zero;
 
     private bool isBallInPlay = false;
-    private bool player2Connected = false;
-    private bool isGameOver = false; // Controla se o jogo terminou
-    private int servingPlayerId = 1;
+    private bool allPlayersConnected = false;
+    private bool isGameOver = false;
+
+    // 1 = Lança para a Direita, 2 = Lança para a Esquerda
+    private int lastScoredSide = 1;
 
     private bool pendingScoreUpdate = false;
+    private bool isRespawning = false;
 
     void Awake()
     {
@@ -40,7 +44,7 @@ public class PongBallPhysics : MonoBehaviour
 
     void Update()
     {
-        // Atualiza placar na Main Thread vindo da rede
+        // Atualiza placar vindo da rede (em clientes secundários)
         if (pendingScoreUpdate)
         {
             pendingScoreUpdate = false;
@@ -52,54 +56,42 @@ public class PongBallPhysics : MonoBehaviour
 
         if (networkClient == null || networkClient.myId == -1) return;
 
-        // Se o jogo acabou, permite reiniciar ao apertar 'R' (apenas Player 1 executa o reset global)
+        // Gestão de Reinício de Jogo
         if (isGameOver)
         {
             if (networkClient.myId == 1 && Input.GetKeyDown(KeyCode.R))
             {
                 RestartGame();
             }
-            else if (networkClient.myId == 2 && Input.GetKeyDown(KeyCode.R))
+            else if (networkClient.myId != 1 && Input.GetKeyDown(KeyCode.R))
             {
                 networkClient.SendNetworkMessage("REQUEST_RESTART");
             }
             return;
         }
 
-        // --- PLAYER 1: Autoridade de Física ---
+        // --- PLAYER 1: Autoridade da Física ---
         if (networkClient.myId == 1)
         {
             if (!rb.simulated) rb.simulated = true;
 
-            if (!isBallInPlay)
+            // Inicia automaticamente quando os 4 jogadores se conectam
+            if (allPlayersConnected && !isBallInPlay && !isRespawning)
             {
-                transform.position = Vector3.zero;
-                rb.linearVelocity = Vector2.zero;
-
-                if (player2Connected && servingPlayerId == 1 && Input.GetKeyDown(KeyCode.Space))
-                {
-                    LaunchBall();
-                }
+                StartCoroutine(AutoLaunchRoutine(1.0f));
             }
-            else
+
+            if (isBallInPlay && rb.linearVelocity.sqrMagnitude > 0)
             {
-                if (rb.linearVelocity.sqrMagnitude > 0)
-                {
-                    rb.linearVelocity = rb.linearVelocity.normalized * ballSpeed;
-                }
+                rb.linearVelocity = rb.linearVelocity.normalized * ballSpeed;
             }
 
             SendBallPosition();
         }
-        // --- PLAYER 2: Seguidor de Rede ---
+        // --- PLAYERS 2, 3 e 4: Seguidores de Rede ---
         else
         {
             if (rb.simulated) rb.simulated = false;
-
-            if (!isBallInPlay && servingPlayerId == 2 && Input.GetKeyDown(KeyCode.Space))
-            {
-                networkClient.SendNetworkMessage("REQUEST_LAUNCH");
-            }
 
             transform.position = Vector3.Lerp(transform.position, remoteBallPos, Time.deltaTime * 25f);
         }
@@ -109,17 +101,19 @@ public class PongBallPhysics : MonoBehaviour
     {
         if (networkClient.myId != 1 || !isBallInPlay || isGameOver) return;
 
+        // Se marcou no golo esquerdo (a bola ia para a esquerda), sai em direção ao lado direito (dirX = 1)
         if (collision.CompareTag("GoalLeft"))
         {
             scorePlayer2++;
-            servingPlayerId = 1;
-            ResetToCenter();
+            lastScoredSide = 1; // Próximo lançamento vai para a DIREITA
+            ResetToCenterAndRelaunch();
         }
+        // Se marcou no golo direito (a bola ia para a direita), sai em direção ao lado esquerdo (dirX = -1)
         else if (collision.CompareTag("GoalRight"))
         {
             scorePlayer1++;
-            servingPlayerId = 2;
-            ResetToCenter();
+            lastScoredSide = 2; // Próximo lançamento vai para a ESQUERDA
+            ResetToCenterAndRelaunch();
         }
 
         CheckWinCondition();
@@ -131,10 +125,11 @@ public class PongBallPhysics : MonoBehaviour
         {
             isGameOver = true;
             isBallInPlay = false;
+            StopAllCoroutines();
             transform.position = Vector3.zero;
             if (rb != null) rb.linearVelocity = Vector2.zero;
 
-            string winnerMsg = scorePlayer1 >= maxScore ? "PLAYER 1 VENCEU!" : "PLAYER 2 VENCEU!";
+            string winnerMsg = scorePlayer1 >= maxScore ? "TIME 1 VENCEU!" : "TIME 2 VENCEU!";
 
             if (winText != null)
             {
@@ -144,14 +139,15 @@ public class PongBallPhysics : MonoBehaviour
         }
     }
 
-    public void SetPlayer2Connected()
+    public void SetAllPlayersConnected()
     {
-        player2Connected = true;
+        allPlayersConnected = true;
     }
 
+    // Método mantido para compatibilidade com o pacote REQUEST_LAUNCH da rede
     public void RemoteRequestLaunch()
     {
-        if (networkClient.myId == 1 && !isBallInPlay && servingPlayerId == 2 && !isGameOver)
+        if (networkClient.myId == 1 && !isBallInPlay && !isGameOver)
         {
             LaunchBall();
         }
@@ -161,7 +157,8 @@ public class PongBallPhysics : MonoBehaviour
     {
         isBallInPlay = true;
 
-        float dirX = servingPlayerId == 1 ? -1f : 1f;
+        // Lança para o lado oposto ao que sofreu o golo
+        float dirX = (lastScoredSide == 1) ? 1f : -1f;
         float dirY = Random.Range(-0.5f, 0.5f);
         if (Mathf.Abs(dirY) < 0.2f) dirY = 0.3f;
 
@@ -169,7 +166,19 @@ public class PongBallPhysics : MonoBehaviour
         rb.linearVelocity = direction * ballSpeed;
     }
 
-    private void ResetToCenter()
+    private IEnumerator AutoLaunchRoutine(float delay)
+    {
+        isRespawning = true;
+        yield return new WaitForSeconds(delay);
+
+        if (!isGameOver)
+        {
+            LaunchBall();
+        }
+        isRespawning = false;
+    }
+
+    private void ResetToCenterAndRelaunch()
     {
         isBallInPlay = false;
         transform.position = Vector3.zero;
@@ -179,18 +188,23 @@ public class PongBallPhysics : MonoBehaviour
 
         if (networkClient != null)
         {
-            string scoreMsg = $"SCORE:{scorePlayer1};{scorePlayer2};{servingPlayerId}";
+            string scoreMsg = $"SCORE:{scorePlayer1};{scorePlayer2};{lastScoredSide}";
             networkClient.SendNetworkMessage(scoreMsg);
         }
+
+        // Aguarda 1.5 segundos antes de lançar a bola automaticamente
+        StartCoroutine(AutoLaunchRoutine(1.5f));
     }
 
     public void RestartGame()
     {
+        StopAllCoroutines();
         scorePlayer1 = 0;
         scorePlayer2 = 0;
         isGameOver = false;
         isBallInPlay = false;
-        servingPlayerId = 1;
+        isRespawning = false;
+        lastScoredSide = 1;
         transform.position = Vector3.zero;
         if (rb != null) rb.linearVelocity = Vector2.zero;
 
@@ -201,6 +215,12 @@ public class PongBallPhysics : MonoBehaviour
         {
             string scoreMsg = $"SCORE:0;0;1";
             networkClient.SendNetworkMessage(scoreMsg);
+        }
+
+        // Relança a bola após reiniciar
+        if (networkClient.myId == 1 && allPlayersConnected)
+        {
+            StartCoroutine(AutoLaunchRoutine(1.5f));
         }
     }
 
@@ -221,11 +241,11 @@ public class PongBallPhysics : MonoBehaviour
         remoteBallPos = new Vector3(x, y, 0);
     }
 
-    public void UpdateScore(int p1, int p2, int nextServer)
+    public void UpdateScore(int p1, int p2, int nextSide)
     {
         scorePlayer1 = p1;
         scorePlayer2 = p2;
-        servingPlayerId = nextServer;
+        lastScoredSide = nextSide;
 
         pendingScoreUpdate = true;
     }

@@ -93,12 +93,13 @@ public class UdpClient4Players : MonoBehaviour
         {
             for (int i = 1; i <= 4; i++)
             {
-                if (i != myId && i <= allPaddles.Length && allPaddles[i - 1] != null)
+                int paddleIndex = i - 1;
+                if (i != myId && paddleIndex < allPaddles.Length && allPaddles[paddleIndex] != null)
                 {
                     if (remoteTargets.ContainsKey(i))
                     {
-                        allPaddles[i - 1].position = Vector3.Lerp(
-                            allPaddles[i - 1].position,
+                        allPaddles[paddleIndex].position = Vector3.Lerp(
+                            allPaddles[paddleIndex].position,
                             remoteTargets[i],
                             Time.deltaTime * 15f
                         );
@@ -132,16 +133,23 @@ public class UdpClient4Players : MonoBehaviour
 
                         Debug.Log($"<color=green><b>[Cliente CONECTADO!]</b> Registrado no Servidor. Seu ID é {myId}</color>");
                     }
+
                     else if (msg.StartsWith("POS:"))
                     {
                         string[] parts = msg.Substring(4).Split(';');
                         if (parts.Length == 3)
                         {
                             int senderId = int.Parse(parts[0]);
+
+                            // Quando o Player 4 enviar sua posição, valida que a sala está cheia
+                            if (senderId == 4 && pongBall != null)
+                            {
+                                pongBall.SetAllPlayersConnected();
+                            }
+
                             if (senderId != myId)
                             {
                                 float y = float.Parse(parts[2], CultureInfo.InvariantCulture);
-
                                 if (initialXPositions.TryGetValue(senderId, out float initX))
                                 {
                                     remoteTargets[senderId] = new Vector3(initX, y, 0);
