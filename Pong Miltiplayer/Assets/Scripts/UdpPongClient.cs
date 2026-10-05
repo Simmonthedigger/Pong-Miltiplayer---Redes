@@ -4,8 +4,9 @@ using System.Net;
 using System.Text;
 using System.Threading;
 using System.Globalization;
+using System.Collections.Generic;
 
-public class UdpClientTwoClients : MonoBehaviour
+public class UdpClient4Players : MonoBehaviour
 {
     private UdpClient client;
     private Thread receiveThread;
@@ -15,15 +16,20 @@ public class UdpClientTwoClients : MonoBehaviour
     public PongBallPhysics pongBall;
     public int myId = -1;
 
-    private Vector3 remotePos;
-    private float remoteInitialX;
-
-    [Header("Configurações do Jogador")]
-    public GameObject localCube;
-    public GameObject remoteCube;
+    [Header("Configurações do Jogador Local")]
+    public Transform localPaddle;
     public float speed = 10f;
     public float minY = -3.8f;
     public float maxY = 3.8f;
+
+    [Header("Mapeamento de Raquetes (1 a 4)")]
+    // Arraste no Inspector as 4 raquetes da cena na ordem do ID (0 = ID 1, 1 = ID 2, etc.)
+    // IDs 1 e 2 = Lado Esquerdo (Superior e Inferior)
+    // IDs 3 e 4 = Lado Direito (Superior e Inferior)
+    public Transform[] allPaddles = new Transform[4];
+
+    private Dictionary<int, Vector3> remoteTargets = new Dictionary<int, Vector3>();
+    private Dictionary<int, float> initialXPositions = new Dictionary<int, float>();
 
     [Header("Configuração de Rede")]
     public string serverIP = "127.0.0.1";
@@ -31,10 +37,15 @@ public class UdpClientTwoClients : MonoBehaviour
 
     void Start()
     {
-        if (remoteCube != null)
+        // Salva as posições X iniciais de todas as raquetes
+        for (int i = 0; i < allPaddles.Length; i++)
         {
-            remotePos = remoteCube.transform.position;
-            remoteInitialX = remoteCube.transform.position.x;
+            if (allPaddles[i] != null)
+            {
+                int playerNumber = i + 1;
+                initialXPositions[playerNumber] = allPaddles[i].position.x;
+                remoteTargets[playerNumber] = allPaddles[i].position;
+            }
         }
 
         try
@@ -42,15 +53,12 @@ public class UdpClientTwoClients : MonoBehaviour
             client = new UdpClient(0);
             serverEP = new IPEndPoint(IPAddress.Parse(serverIP), serverPort);
 
-            // Log informando a tentativa de conexão
-            Debug.Log($"<color=yellow>[Cliente] Tentando conectar ao servidor em {serverIP}:{serverPort}...</color>");
+            Debug.Log($"<color=yellow>[Cliente] Conectando a {serverIP}:{serverPort}...</color>");
 
             receiveThread = new Thread(ReceiveData) { IsBackground = true };
             receiveThread.Start();
 
-            // Envia mensagem HELLO
             SendNetworkMessage("HELLO");
-            Debug.Log($"<color=cyan>[Cliente] Pacote HELLO enviado para {serverIP}:{serverPort}</color>");
         }
         catch (System.Exception ex)
         {
@@ -60,33 +68,42 @@ public class UdpClientTwoClients : MonoBehaviour
 
     void Update()
     {
+        // 1. Movimentação do Jogador Local
         float v = Input.GetAxisRaw("Vertical");
-        if (v != 0 && localCube != null)
+        if (v != 0 && localPaddle != null)
         {
-            Vector3 pos = localCube.transform.position;
+            Vector3 pos = localPaddle.position;
             pos.y += v * speed * Time.deltaTime;
             pos.y = Mathf.Clamp(pos.y, minY, maxY);
-            localCube.transform.position = pos;
+            localPaddle.position = pos;
         }
 
-        if (localCube != null && myId != -1)
+        // 2. Envio da posição local para a rede
+        if (localPaddle != null && myId != -1)
         {
             string msg = "POS:" +
-                localCube.transform.position.x.ToString("F2", CultureInfo.InvariantCulture) + ";" +
-                localCube.transform.position.y.ToString("F2", CultureInfo.InvariantCulture);
+                localPaddle.position.x.ToString("F2", CultureInfo.InvariantCulture) + ";" +
+                localPaddle.position.y.ToString("F2", CultureInfo.InvariantCulture);
 
             SendNetworkMessage(msg);
         }
 
+        // 3. Interpolação (Lerp) dos outros 3 jogadores remotos
         lock (lockObj)
         {
-            if (remoteCube != null)
+            for (int i = 1; i <= 4; i++)
             {
-                remoteCube.transform.position = Vector3.Lerp(
-                    remoteCube.transform.position,
-                    remotePos,
-                    Time.deltaTime * 15f
-                );
+                if (i != myId && i <= allPaddles.Length && allPaddles[i - 1] != null)
+                {
+                    if (remoteTargets.ContainsKey(i))
+                    {
+                        allPaddles[i - 1].position = Vector3.Lerp(
+                            allPaddles[i - 1].position,
+                            remoteTargets[i],
+                            Time.deltaTime * 15f
+                        );
+                    }
+                }
             }
         }
     }
@@ -106,24 +123,29 @@ public class UdpClientTwoClients : MonoBehaviour
                     if (msg.StartsWith("ASSIGN:"))
                     {
                         myId = int.Parse(msg.Substring(7));
-                        // Mensagem clara informando que a conexão foi estabelecida e registrada com sucesso!
-                        Debug.Log($"<color=green><b>[Cliente CONECTADO!]</b> Registrado no Servidor ({remoteEP.Address}). ID Atribuído = {myId}</color>");
+
+                        // Vincula o Transform local à raquete correspondente ao ID atribuído
+                        if (myId >= 1 && myId <= allPaddles.Length)
+                        {
+                            localPaddle = allPaddles[myId - 1];
+                        }
+
+                        Debug.Log($"<color=green><b>[Cliente CONECTADO!]</b> Registrado no Servidor. Seu ID é {myId}</color>");
                     }
                     else if (msg.StartsWith("POS:"))
                     {
                         string[] parts = msg.Substring(4).Split(';');
                         if (parts.Length == 3)
                         {
-                            int id = int.Parse(parts[0]);
-                            if (id != myId)
+                            int senderId = int.Parse(parts[0]);
+                            if (senderId != myId)
                             {
-                                if (pongBall != null)
-                                {
-                                    pongBall.SetPlayer2Connected();
-                                }
-
                                 float y = float.Parse(parts[2], CultureInfo.InvariantCulture);
-                                remotePos = new Vector3(remoteInitialX, y, 0);
+
+                                if (initialXPositions.TryGetValue(senderId, out float initX))
+                                {
+                                    remoteTargets[senderId] = new Vector3(initX, y, 0);
+                                }
                             }
                         }
                     }
@@ -186,15 +208,8 @@ public class UdpClientTwoClients : MonoBehaviour
         }
     }
 
-    private void OnDestroy()
-    {
-        CloseSocket();
-    }
-
-    private void OnApplicationQuit()
-    {
-        CloseSocket();
-    }
+    private void OnDestroy() => CloseSocket();
+    private void OnApplicationQuit() => CloseSocket();
 
     private void CloseSocket()
     {

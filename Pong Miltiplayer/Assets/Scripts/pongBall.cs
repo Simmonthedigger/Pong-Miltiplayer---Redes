@@ -4,7 +4,7 @@ using System.Globalization;
 
 public class PongBallPhysics : MonoBehaviour
 {
-    public UdpClientTwoClients networkClient;
+    public UdpClient4Players networkClient;
     public float ballSpeed = 8f;
 
     [Header("Interface do Placar")]

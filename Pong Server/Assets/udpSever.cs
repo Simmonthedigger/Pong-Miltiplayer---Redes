@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Collections.Generic;
 
-public class UdpServerTwoClients : MonoBehaviour
+public class UdpServer4Players : MonoBehaviour
 {
     private UdpClient server;
     private Thread receiveThread;
@@ -22,9 +22,7 @@ public class UdpServerTwoClients : MonoBehaviour
             server = new UdpClient(5001);
             receiveThread = new Thread(ReceiveData) { IsBackground = true };
             receiveThread.Start();
-
-            // Log de servidor iniciado formatado em verde e negrito
-            Debug.Log("<color=green><b>[SERVIDOR INICIADO]</b> Rodando com sucesso na porta UDP 5001!</color>");
+            Debug.Log("<color=green><b>[SERVIDOR INICIADO]</b> Rodando para 4 jogadores na porta 5001!</color>");
         }
         catch (System.Exception ex)
         {
@@ -46,8 +44,8 @@ public class UdpServerTwoClients : MonoBehaviour
 
                 lock (lockObj)
                 {
-                    // 1. Registra o cliente usando IP e PORTA (Qualquer mensagem inicial registra)
-                    if (!clientIds.ContainsKey(clientKey) && clientIds.Count < 2)
+                    // 1. Limite alterado para até 4 jogadores
+                    if (!clientIds.ContainsKey(clientKey) && clientIds.Count < 4)
                     {
                         int assignedId = nextId++;
                         clientIds[clientKey] = assignedId;
@@ -62,22 +60,19 @@ public class UdpServerTwoClients : MonoBehaviour
 
                     if (clientIds.TryGetValue(clientKey, out int senderId))
                     {
-                        // 2. Se o cliente enviar HELLO novamente, apenas re-confirma o ID
                         if (msg == "HELLO")
                         {
                             string assignMsg = "ASSIGN:" + senderId;
                             byte[] assignBytes = Encoding.UTF8.GetBytes(assignMsg);
                             server.Send(assignBytes, assignBytes.Length, remoteEP);
-                            Debug.Log($"<color=yellow>[SERVIDOR] Reenviado ASSIGN:{senderId} para {clientKey}</color>");
                             continue;
                         }
 
-                        // 3. Retransmite mensagens de Posição, Bola, Placar, Saque e Reinício
+                        // Retransmite mensagens (POS, BALL, SCORE, REQUEST_*)
                         if (msg.StartsWith("POS:") || msg.StartsWith("BALL:") || msg.StartsWith("SCORE:") || msg.StartsWith("REQUEST_LAUNCH") || msg.StartsWith("REQUEST_RESTART"))
                         {
                             byte[] bdata;
 
-                            // Se for posição ou bola, anexa o ID de quem enviou (ex: POS:1;X;Y)
                             if (msg.StartsWith("POS:") || msg.StartsWith("BALL:"))
                             {
                                 int colonIndex = msg.IndexOf(':');
@@ -88,11 +83,9 @@ public class UdpServerTwoClients : MonoBehaviour
                             }
                             else
                             {
-                                // SCORE:, REQUEST_LAUNCH e REQUEST_RESTART são retransmitidas exatamente como recebidas
                                 bdata = Encoding.UTF8.GetBytes(msg);
                             }
 
-                            // Transmite para TODOS os clientes conectados
                             foreach (var ep in clientEndpoints.Values)
                             {
                                 server.Send(bdata, bdata.Length, ep);
@@ -109,15 +102,8 @@ public class UdpServerTwoClients : MonoBehaviour
         }
     }
 
-    private void OnDestroy()
-    {
-        CloseSocket();
-    }
-
-    private void OnApplicationQuit()
-    {
-        CloseSocket();
-    }
+    private void OnDestroy() => CloseSocket();
+    private void OnApplicationQuit() => CloseSocket();
 
     private void CloseSocket()
     {
